@@ -1,0 +1,24 @@
+[package]
+name = "scrigen"
+version = "0.1.0"
+edition = "2021"
+authors = ["Rie"]
+license = "MIT OR Apache-2.0"
+description = "Small, bespoke static site generator for a personal blog."
+readme = "READNE.md"
+repository = "https://github.com/tracefree/scrigen"
+keywords = ["cli", "static-site-generator"]
+categories = ["web-programming"]
+
+[dependencies]
+atom_syndication = "0.12.4"
+chrono = "0.4.38"
+inkjet = { version = "0.11.1", default-features = false, features = [
+    "html",
+    "theme",
+    "language-gdscript",
+] }
+markdown = "0.3.0"
+regex = "1.11.0"
+ron = "0.8.1"
+serde = { version = "1.0.210", features = ["derive"] }
