@@ -1,5 +1,6 @@
 use atom_syndication::{Content, FixedDateTime, Link, Person};
 use chrono::{Local, NaiveDate, NaiveDateTime, NaiveTime};
+use convert_case::Casing;
 use inkjet::{formatter, Highlighter};
 use regex::{Captures, Regex};
 use serde::Deserialize;
@@ -56,7 +57,7 @@ impl BlogPost {
         <html>
         <head>
 	<meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\">
-	<meta property=\"og:site_name\" content=\"{site_name}⁺\">
+	<meta property=\"og:site_name\" content=\"{site_name}\">
 	<meta property=\"og:type\" content=\"website\" />
 	<meta property=\"og:url\" content=\"{url_base}/blog/{}\">
 	<meta property=\"og:title\" content=\"{}\" />
@@ -74,61 +75,65 @@ impl BlogPost {
         html += format!(
             "<div class='post-header-image'>
                 <img alt='{}' src='{}' class='post-image'><br />
-            </div>",
+            </div>
+            ___SIDEBAR___
+            ",
             self.image_alt, self.image
         )
         .as_str();
 
         html += "<div class='post-text'>";
         html += format!("<h1>{}</h1>", self.title).as_str();
-        // TODO: Style publish date better and include updated date
-        /*     html += format!(
-            "<span class='entry-date'>{}</span>",
-            self.published.to_string()
-        )
-        .as_str(); */
 
         let mut in_code_block = false;
         let mut current_code_block = String::new();
 
         let mut in_image = false;
 
+        let mut sections: Vec<(String, String)> = vec![];
+
         for line in self.markdown.lines() {
             if line.starts_with("```") {
                 in_code_block = !in_code_block;
                 if !in_code_block {
-                    let result = highlighter
-                        .highlight_to_string(
-                            inkjet::Language::Gdscript,
-                            &formatter::Html,
-                            current_code_block.as_str(),
+
+                    if line.starts_with("```GDScript") {
+                        let result = highlighter
+                            .highlight_to_string(
+                                inkjet::Language::Gdscript,
+                                &formatter::Html,
+                                current_code_block.as_str(),
+                            )
+                            .unwrap();
+                        // Doing crimes against Regex
+                        let mut inside_tag = false;
+                        let mut new_result = String::new();
+                        for character in result.chars() {
+                            match character {
+                                '<' => inside_tag = true,
+                                '>' => inside_tag = false,
+                                '=' => {
+                                    if !inside_tag {
+                                        new_result += "&equals;";
+                                        continue;
+                                    }
+                                }
+                                _ => {}
+                            };
+                            new_result.push(character);
+                        }
+                        let regex = Regex::new(
+                            "(\\(|\\)|\\[|\\]|\\:|\\+|\\-)|\\*|\\{|\\}|&gt;|&#x2f;|&equals;",
                         )
                         .unwrap();
-                    // Doing crimes against Regex
-                    let mut inside_tag = false;
-                    let mut new_result = String::new();
-                    for character in result.chars() {
-                        match character {
-                            '<' => inside_tag = true,
-                            '>' => inside_tag = false,
-                            '=' => {
-                                if !inside_tag {
-                                    new_result += "&equals;";
-                                    continue;
-                                }
-                            }
-                            _ => {}
-                        };
-                        new_result.push(character);
+                        let result = regex.replace_all(new_result.as_str(), |captures: &Captures| {
+                            format!("<span class='symbol'>{}</span>", &captures[0])
+                        });
+
+                        html += format!("<pre>{}</pre>", result).as_str();
+                    } else {
+                        html += format!("<pre>{}</pre>", current_code_block.as_str()).as_str();
                     }
-                    let regex = Regex::new(
-                        "(\\(|\\)|\\[|\\]|\\:|\\+|\\-)|\\*|\\{|\\}|&gt;|&#x2f;|&equals;",
-                    )
-                    .unwrap();
-                    let result = regex.replace_all(new_result.as_str(), |captures: &Captures| {
-                        format!("<span class='symbol'>{}</span>", &captures[0])
-                    });
-                    html += format!("<pre>{}</pre>", result).as_str();
                     current_code_block.clear();
                 }
                 continue;
@@ -141,11 +146,11 @@ impl BlogPost {
             if line.starts_with("!insert ") {
                 let markdown_part;
                 if line.starts_with("!insert bg ") {
-                    html += "</div><div class='post-insert with-background'>";
+                    html += "</div><div class='post-insert with-background'><div class='insert-content'><div class='insert-content-inner'>";
 
                     markdown_part = line.replace("!insert bg ", "");
                 } else {
-                    html += "</div><div class='post-insert'>";
+                    html += "</div><div class='post-insert'><div class='insert-content'><div class='insert-content-inner'>";
                     markdown_part = line.replace("!insert ", "");
                 }
 
@@ -160,19 +165,47 @@ impl BlogPost {
                 in_image = false;
                 if line.starts_with("!image_subtitle ") {
                     html +=
-                        format!("<br><em>{}</em>", line.replace("!image_subtitle ", "")).as_str();
-                    html += "</div><div class='post-text'>\n";
+                        format!("<br><div class='insert-description'><em>{}</em>", line.replace("!image_subtitle ", "")).as_str();
+                    html += "</div></div></div></div><div class='post-text'>\n";
                     continue;
                 } else {
-                    html += "</div><div class='post-text'>\n";
+                    html += "</div></div></div><div class='post-text'>\n";
                 }
             }
-            html += markdown::to_html(line).as_str();
+            let parsed_line = markdown::to_html_with_options(line, &markdown::Options::gfm()).unwrap();
+            if parsed_line.starts_with("<h2>") {
+                let section_title = parsed_line[4..parsed_line.len()-5].to_string();
+                let section_id: String = section_title.chars().filter(|&c| c.is_alphanumeric() || c == ' ').collect();
+                let section_id = section_id.replace(":", "").to_case(convert_case::Case::Snake);
+                html += format!("
+                <h2 id='{}'>{}<a href='#{}'><div class='section-link' alt='Section link'>
+                </div></a></h2>", section_id, section_title, section_id).as_str();
+                sections.push((section_title, section_id));
+            } else {
+                html += parsed_line.as_str();
+            }
         }
-        html += "</div>";
+        html += "<div class='post-end'>
+	<a href='../../index.html'><div id='home-link'></div>Home</a>
+	<a href='#page-top'><div id='top-link'></div>Back to the top</a>
+</div></div>";
         let footer =
             fs::read_to_string(format!("{source_dir}/fragments/post_footer.html")).unwrap();
         html += footer.as_str();
+
+        let mut sidebar = format!("
+        <div id='sidebar'>
+        <div class='sidebar-info'>
+        Published <span class='sidebar-date'>{}</span><br>
+        Updated <span class='sidebar-date'>{}</span><br>
+        </div>
+        <hr>
+        <ol>", self.published().format("%B %e, %Y"), self.updated().format("%B %e, %Y"));
+        for section in sections {
+            sidebar += format!("<li><a href='#{}'>{}</a></li>", section.1, section.0).as_str();
+        }
+        sidebar += "</ol></div>";
+        let html = html.replace("___SIDEBAR___", sidebar.as_str());
         html
     }
 
@@ -192,7 +225,7 @@ impl BlogPost {
             self.image_alt,
             self.id,
             self.title,
-            self.published.to_string(),
+            self.published().format("%B %e, %Y"),
             self.summary
         )
     }

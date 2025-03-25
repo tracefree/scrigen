@@ -13,12 +13,13 @@ categories = ["web-programming"]
 [dependencies]
 atom_syndication = "0.12.4"
 chrono = "0.4.38"
+convert_case = "0.8.0"
 inkjet = { version = "0.11.1", default-features = false, features = [
     "html",
     "theme",
     "language-gdscript",
 ] }
-markdown = "0.3.0"
+markdown = "1.0.0-alpha.23"
 regex = "1.11.0"
 ron = "0.8.1"
 serde = { version = "1.0.210", features = ["derive"] }
