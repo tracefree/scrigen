@@ -6,6 +6,8 @@ use regex::{Captures, Regex};
 use serde::Deserialize;
 use std::fs;
 
+use crate::{page::Page, static_page::StaticPage};
+
 #[derive(Deserialize, Default)]
 pub struct BlogPost {
     #[serde(default = "String::new")]
@@ -15,6 +17,7 @@ pub struct BlogPost {
     author_name: String,
     author_email: String,
     author_uri: String,
+    author_fediverse: String,
     pub image: String,
     pub image_alt: String,
     pub published: String,
@@ -24,13 +27,6 @@ pub struct BlogPost {
 }
 
 impl BlogPost {
-    pub fn from_path(path: String) -> Self {
-        let meta_string = fs::read_to_string(path.clone() + "/meta.ron").unwrap();
-        let mut post: BlogPost = ron::from_str(meta_string.as_str()).unwrap();
-        post.markdown = fs::read_to_string(path + "/content.md").unwrap();
-        post
-    }
-
     pub fn published(&self) -> FixedDateTime {
         FixedDateTime::from_naive_utc_and_offset(
             NaiveDateTime::new(
@@ -51,7 +47,74 @@ impl BlogPost {
         )
     }
 
-    pub fn to_html(&self, source_dir: &String, url_base: &String, site_name: &String) -> String {
+    pub fn to_entry_fragment(&self) -> String {
+        format!(
+            "<div class='post-entry'>
+                <img class='entry-image' src='blog/{}/{}' alt='{}'/>
+                <div class='entry-text'>
+                    <a href='blog/{}/index.html' class='entry-link'></a>
+         			<h2 class='entry-title'>{}</h2>
+         			<span class='entry-date'>{}</span>
+         			<p class='entry-summary'>{}</p>
+                </div>
+			</div>",
+            self.id,
+            self.image,
+            self.image_alt,
+            self.id,
+            self.title,
+            self.published().format("%B %e, %Y"),
+            self.summary
+        )
+    }
+
+    pub fn get_atom_entry(
+        &self,
+        source_dir: &String,
+        pages: &Vec<StaticPage>,
+        url_base: &String,
+        site_name: &String,
+    ) -> atom_syndication::Entry {
+        let mut entry = atom_syndication::Entry::default();
+        entry.set_title(self.title.clone());
+        entry.set_authors(vec![Person {
+            name: self.author_name.clone(),
+            email: Some(self.author_email.clone()),
+            uri: Some(self.author_uri.clone()),
+        }]);
+        let post_url = format!("{url_base}/blog/{}", self.id);
+        entry.set_id(&post_url);
+        entry.set_links(vec![Link {
+            href: post_url.clone(),
+            rel: "alternate".into(),
+            mime_type: Some("text/html".into()),
+            ..Default::default()
+        }]);
+        entry.set_summary(Some(atom_syndication::Text::plain(self.summary.clone())));
+        entry.set_published(self.published());
+        entry.set_updated(self.updated());
+        let content = Content {
+            base: Some(post_url.clone()),
+            lang: Some("en".into()),
+            value: Some(self.to_html(source_dir, pages, url_base, site_name)),
+            src: Some(post_url.clone()),
+            content_type: Some("html".into()),
+        };
+        entry.set_content(content);
+        entry
+    }
+}
+
+
+impl Page for BlogPost {
+    fn from_path(path: String) -> Self {
+        let meta_string = fs::read_to_string(path.clone() + "/meta.ron").unwrap();
+        let mut post: Self = ron::from_str(meta_string.as_str()).unwrap();
+        post.markdown = fs::read_to_string(path + "/content.md").unwrap();
+        post
+    }
+
+    fn to_html(&self, source_dir: &String, pages: &Vec<StaticPage>, url_base: &String, site_name: &String) -> String {
         let mut html = format!(
             "<!DOCTYPE html>
         <html>
@@ -63,13 +126,21 @@ impl BlogPost {
 	<meta property=\"og:title\" content=\"{}\" />
 	<meta property=\"og:description\" content=\"{}\">
 	<meta property=\"og:image\" content=\"{url_base}/blog/{}/{}\"/>
+    <meta name='fediverse:creator' content='{}'/>
 	<title>{}</title>",
-            self.id, self.title, self.summary, self.id, self.image, self.title
+            self.id, self.title, self.summary, self.id, self.image, self.author_fediverse, self.title
         );
         let mut highlighter = Highlighter::new();
 
         let header =
             fs::read_to_string(format!("{source_dir}/fragments/post_header.html")).unwrap();
+
+        let mut page_links = String::new();
+        for page in pages {
+            page_links += format!("<a href=\"../../{}/index.html\">{}</a>", page.id, page.name).as_str();
+        }
+        
+        let header = header.replace("___STATIC_PAGES___", &page_links);
         html += header.as_str();
 
         html += format!(
@@ -129,7 +200,6 @@ impl BlogPost {
                         let result = regex.replace_all(new_result.as_str(), |captures: &Captures| {
                             format!("<span class='symbol'>{}</span>", &captures[0])
                         });
-
                         html += format!("<pre>{}</pre>", result).as_str();
                     } else {
                         html += format!("<pre>{}</pre>", current_code_block.as_str()).as_str();
@@ -207,61 +277,5 @@ impl BlogPost {
         sidebar += "</ol></div>";
         let html = html.replace("___SIDEBAR___", sidebar.as_str());
         html
-    }
-
-    pub fn to_entry_fragment(&self) -> String {
-        format!(
-            "<div class='post-entry'>
-                <img class='entry-image' src='blog/{}/{}' alt='{}'/>
-                <div class='entry-text'>
-                    <a href='blog/{}/index.html' class='entry-link'></a>
-         			<h2 class='entry-title'>{}</h2>
-         			<span class='entry-date'>{}</span>
-         			<p class='entry-summary'>{}</p>
-                </div>
-			</div>",
-            self.id,
-            self.image,
-            self.image_alt,
-            self.id,
-            self.title,
-            self.published().format("%B %e, %Y"),
-            self.summary
-        )
-    }
-
-    pub fn get_atom_entry(
-        &self,
-        source_dir: &String,
-        url_base: &String,
-        site_name: &String,
-    ) -> atom_syndication::Entry {
-        let mut entry = atom_syndication::Entry::default();
-        entry.set_title(self.title.clone());
-        entry.set_authors(vec![Person {
-            name: self.author_name.clone(),
-            email: Some(self.author_email.clone()),
-            uri: Some(self.author_uri.clone()),
-        }]);
-        let post_url = format!("{url_base}/blog/{}", self.id);
-        entry.set_id(&post_url);
-        entry.set_links(vec![Link {
-            href: post_url.clone(),
-            rel: "alternate".into(),
-            mime_type: Some("text/html".into()),
-            ..Default::default()
-        }]);
-        entry.set_summary(Some(atom_syndication::Text::plain(self.summary.clone())));
-        entry.set_published(self.published());
-        entry.set_updated(self.updated());
-        let content = Content {
-            base: Some(post_url.clone()),
-            lang: Some("en".into()),
-            value: Some(self.to_html(source_dir, url_base, site_name)),
-            src: Some(post_url.clone()),
-            content_type: Some("html".into()),
-        };
-        entry.set_content(content);
-        entry
     }
 }
