@@ -8,13 +8,12 @@ use std::{
     io::Write,
 };
 
-mod page;
 mod blog_post;
+mod page;
 mod static_page;
 
-use page::Page;
 use blog_post::*;
-
+use page::Page;
 
 // TODO:
 // - Publish and update dates in post
@@ -79,13 +78,28 @@ fn main() {
     let static_pages: Vec<StaticPage> = parse_pages(&source_directory);
     let blog_posts = parse_posts(source_directory);
     if operation == Operation::WritePosts || operation == Operation::WriteAll {
-        write_posts(&blog_posts, &static_pages, &source_directory, &target_directory)
+        write_posts(
+            &blog_posts,
+            &static_pages,
+            &source_directory,
+            &target_directory,
+        )
     }
     if operation == Operation::WriteLanding || operation == Operation::WriteAll {
-        write_landing_page(&blog_posts, &static_pages, &source_directory, &target_directory);
+        write_landing_page(
+            &blog_posts,
+            &static_pages,
+            &source_directory,
+            &target_directory,
+        );
     }
     if operation == Operation::WriteFeed || operation == Operation::WriteAll {
-        write_feed(&blog_posts, &static_pages, &source_directory, &target_directory);
+        write_feed(
+            &blog_posts,
+            &static_pages,
+            &source_directory,
+            &target_directory,
+        );
     }
     if operation == Operation::WritePages || operation == Operation::WriteAll {
         write_static_pages(&static_pages, source_directory, target_directory);
@@ -106,8 +120,7 @@ fn parse_pages(path: &str) -> Vec<StaticPage> {
         }
         pages.push(page);
     }
-    pages
-        .sort_by(|entry1, entry2| -> Ordering { entry1.order.cmp(&entry2.order) });
+    pages.sort_by(|entry1, entry2| -> Ordering { entry1.order.cmp(&entry2.order) });
     pages
 }
 
@@ -128,12 +141,22 @@ fn parse_posts(path: &str) -> Vec<BlogPost> {
     blog_posts
 }
 
-fn write_posts(blog_posts: &Vec<BlogPost>, pages: &Vec<StaticPage>, source_directory: &String, target_directory: &String) {
+fn write_posts(
+    blog_posts: &Vec<BlogPost>,
+    pages: &Vec<StaticPage>,
+    source_directory: &String,
+    target_directory: &String,
+) {
     // TODO: Avoid reading this file twice
     let feed_string = fs::read_to_string(format!("{source_directory}/feed.ron")).unwrap();
     let feed_info: FeedInfo = ron::from_str(feed_string.as_str()).unwrap();
     for post in blog_posts {
-        let html = post.to_html(source_directory, pages, &feed_info.link_site, &feed_info.title);
+        let html = post.to_html(
+            source_directory,
+            pages,
+            &feed_info.link_site,
+            &feed_info.title,
+        );
         let directory = format!("{target_directory}/blog/{}", post.id);
         let _result = fs::create_dir(directory.clone());
         let _result = fs::write(directory + "/index.html", html);
@@ -160,26 +183,36 @@ fn write_posts(blog_posts: &Vec<BlogPost>, pages: &Vec<StaticPage>, source_direc
 fn write_static_pages(
     pages: &Vec<StaticPage>,
     source_directory: &String,
-    target_directory: &String
+    target_directory: &String,
 ) {
     let feed_string = fs::read_to_string(format!("{source_directory}/feed.ron")).unwrap();
     let feed_info: FeedInfo = ron::from_str(feed_string.as_str()).unwrap();
     for page in pages {
-        let html = page.to_html(source_directory, pages, &feed_info.link_site, &feed_info.title);
+        let html = page.to_html(
+            source_directory,
+            pages,
+            &feed_info.link_site,
+            &feed_info.title,
+        );
         let directory = format!("{target_directory}/{}", page.id);
         let _result = fs::create_dir(directory.clone());
         let _result = fs::write(directory + "/index.html", html);
-        for file in fs::read_dir(format!("{source_directory}/pages/{}_{}", page.order, page.id)).unwrap() {
+        for file in fs::read_dir(format!(
+            "{source_directory}/pages/{}_{}",
+            page.order, page.id
+        ))
+        .unwrap()
+        {
             if let Ok(file) = file {
                 match file.file_name().to_str() {
                     Some("content.md") => continue,
                     Some("meta.ron") => continue,
                     Some(file_name) => {
-                        let source_path =
-                            format!("{source_directory}/pages/{}_{}/{}", page.order, page.id, file_name);
-                        let target_path =
-                            format!("{target_directory}/{}/{}", page.id, file_name);
-                        println!("Copying {source_path} to {target_path}");
+                        let source_path = format!(
+                            "{source_directory}/pages/{}_{}/{}",
+                            page.order, page.id, file_name
+                        );
+                        let target_path = format!("{target_directory}/{}/{}", page.id, file_name);
                         let _result = fs::copy(source_path, target_path);
                     }
                     None => continue,
@@ -197,12 +230,12 @@ fn write_landing_page(
 ) {
     let landing_header =
         fs::read_to_string(format!("{source_directory}/fragments/landing_header.html")).unwrap();
-    let mut page_links = String::new();
+    let mut page_links = String::from("<a href=\"./index.html\">Blog</a>");
     for page in pages {
-        page_links += format!("<a href=\"../../{}/index.html\">{}</a>", page.id, page.name).as_str();
+        page_links += format!("<a href=\"{}/index.html\">{}</a>", page.id, page.name).as_str();
     }
     let landing_header = landing_header.replace("___STATIC_PAGES___", &page_links);
-    
+
     let landing_footer =
         fs::read_to_string(format!("{source_directory}/fragments/landing_footer.html")).unwrap();
 
@@ -214,7 +247,12 @@ fn write_landing_page(
     let _result = fs::write(format!("{target_directory}/index.html"), html);
 }
 
-fn write_feed(blog_posts: &Vec<BlogPost>, pages: &Vec<StaticPage>, source_directory: &String, target_directory: &String) {
+fn write_feed(
+    blog_posts: &Vec<BlogPost>,
+    pages: &Vec<StaticPage>,
+    source_directory: &String,
+    target_directory: &String,
+) {
     let feed_string = fs::read_to_string(format!("{source_directory}/feed.ron")).unwrap();
     let feed_info: FeedInfo = ron::from_str(feed_string.as_str()).unwrap();
 

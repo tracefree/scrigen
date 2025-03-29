@@ -105,7 +105,6 @@ impl BlogPost {
     }
 }
 
-
 impl Page for BlogPost {
     fn from_path(path: String) -> Self {
         let meta_string = fs::read_to_string(path.clone() + "/meta.ron").unwrap();
@@ -114,7 +113,13 @@ impl Page for BlogPost {
         post
     }
 
-    fn to_html(&self, source_dir: &String, pages: &Vec<StaticPage>, url_base: &String, site_name: &String) -> String {
+    fn to_html(
+        &self,
+        source_dir: &String,
+        pages: &Vec<StaticPage>,
+        url_base: &String,
+        site_name: &String,
+    ) -> String {
         let mut html = format!(
             "<!DOCTYPE html>
         <html>
@@ -128,23 +133,30 @@ impl Page for BlogPost {
 	<meta property=\"og:image\" content=\"{url_base}/blog/{}/{}\"/>
     <meta name='fediverse:creator' content='{}'/>
 	<title>{}</title>",
-            self.id, self.title, self.summary, self.id, self.image, self.author_fediverse, self.title
+            self.id,
+            self.title,
+            self.summary,
+            self.id,
+            self.image,
+            self.author_fediverse,
+            self.title
         );
         let mut highlighter = Highlighter::new();
 
         let header =
             fs::read_to_string(format!("{source_dir}/fragments/post_header.html")).unwrap();
 
-        let mut page_links = String::new();
+        let mut page_links = String::from("<a href=\"../../index.html\">Blog</a>");
         for page in pages {
-            page_links += format!("<a href=\"../../{}/index.html\">{}</a>", page.id, page.name).as_str();
+            page_links +=
+                format!("<a href=\"../../{}/index.html\">{}</a>", page.id, page.name).as_str();
         }
-        
+
         let header = header.replace("___STATIC_PAGES___", &page_links);
         html += header.as_str();
 
         html += format!(
-            "<div class='post-header-image'>
+            "<div class='post-header-image' id='page-top'>
                 <img alt='{}' src='{}' class='post-image'><br />
             </div>
             ___SIDEBAR___
@@ -158,7 +170,7 @@ impl Page for BlogPost {
 
         let mut in_code_block = false;
         let mut current_code_block = String::new();
-
+        let mut format_gdscript = false;
         let mut in_image = false;
 
         let mut sections: Vec<(String, String)> = vec![];
@@ -166,9 +178,10 @@ impl Page for BlogPost {
         for line in self.markdown.lines() {
             if line.starts_with("```") {
                 in_code_block = !in_code_block;
-                if !in_code_block {
-
-                    if line.starts_with("```GDScript") {
+                if in_code_block {
+                    format_gdscript = line.starts_with("```GDScript");
+                } else {
+                    if format_gdscript {
                         let result = highlighter
                             .highlight_to_string(
                                 inkjet::Language::Gdscript,
@@ -197,9 +210,10 @@ impl Page for BlogPost {
                             "(\\(|\\)|\\[|\\]|\\:|\\+|\\-)|\\*|\\{|\\}|&gt;|&#x2f;|&equals;",
                         )
                         .unwrap();
-                        let result = regex.replace_all(new_result.as_str(), |captures: &Captures| {
-                            format!("<span class='symbol'>{}</span>", &captures[0])
-                        });
+                        let result =
+                            regex.replace_all(new_result.as_str(), |captures: &Captures| {
+                                format!("<span class='symbol'>{}</span>", &captures[0])
+                            });
                         html += format!("<pre>{}</pre>", result).as_str();
                     } else {
                         html += format!("<pre>{}</pre>", current_code_block.as_str()).as_str();
@@ -209,8 +223,7 @@ impl Page for BlogPost {
                 continue;
             }
             if in_code_block {
-                current_code_block += line;
-                current_code_block += "\n";
+                current_code_block += format!("{line}\n").as_str();
                 continue;
             }
             if line.starts_with("!insert ") {
@@ -234,22 +247,35 @@ impl Page for BlogPost {
             if in_image {
                 in_image = false;
                 if line.starts_with("!image_subtitle ") {
-                    html +=
-                        format!("<br><div class='insert-description'><em>{}</em>", line.replace("!image_subtitle ", "")).as_str();
+                    html += format!(
+                        "<br><div class='insert-description'><em>{}</em>",
+                        line.replace("!image_subtitle ", "")
+                    )
+                    .as_str();
                     html += "</div></div></div></div><div class='post-text'>\n";
                     continue;
                 } else {
                     html += "</div></div></div><div class='post-text'>\n";
                 }
             }
-            let parsed_line = markdown::to_html_with_options(line, &markdown::Options::gfm()).unwrap();
+            let parsed_line =
+                markdown::to_html_with_options(line, &markdown::Options::gfm()).unwrap();
             if parsed_line.starts_with("<h2>") {
-                let section_title = parsed_line[4..parsed_line.len()-5].to_string();
-                let section_id: String = section_title.chars().filter(|&c| c.is_alphanumeric() || c == ' ').collect();
-                let section_id = section_id.replace(":", "").to_case(convert_case::Case::Snake);
-                html += format!("
+                let section_title = parsed_line[4..parsed_line.len() - 5].to_string();
+                let section_id: String = section_title
+                    .chars()
+                    .filter(|&c| c.is_alphanumeric() || c == ' ')
+                    .collect();
+                let section_id = section_id
+                    .replace(":", "")
+                    .to_case(convert_case::Case::Snake);
+                html += format!(
+                    "
                 <h2 id='{}'>{}<a href='#{}'><div class='section-link' alt='Section link'>
-                </div></a></h2>", section_id, section_title, section_id).as_str();
+                </div></a></h2>",
+                    section_id, section_title, section_id
+                )
+                .as_str();
                 sections.push((section_title, section_id));
             } else {
                 html += parsed_line.as_str();
@@ -263,14 +289,18 @@ impl Page for BlogPost {
             fs::read_to_string(format!("{source_dir}/fragments/post_footer.html")).unwrap();
         html += footer.as_str();
 
-        let mut sidebar = format!("
+        let mut sidebar = format!(
+            "
         <div id='sidebar'>
         <div class='sidebar-info'>
         Published <span class='sidebar-date'>{}</span><br>
         Updated <span class='sidebar-date'>{}</span><br>
         </div>
         <hr>
-        <ol>", self.published().format("%B %e, %Y"), self.updated().format("%B %e, %Y"));
+        <ol>",
+            self.published().format("%B %e, %Y"),
+            self.updated().format("%B %e, %Y")
+        );
         for section in sections {
             sidebar += format!("<li><a href='#{}'>{}</a></li>", section.1, section.0).as_str();
         }
